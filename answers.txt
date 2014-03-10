@@ -14,13 +14,13 @@
 
 # Partner 1
 Name: William Lai
-Student ID: 
-Email: 
+Student ID: 404138817
+Email: williamlai@ucla.edu
 
 # Partner 2 (if you're working in a team)
-# Name: Brian Liu
-# Student ID: 
-# Email: 
+Name: Brian Liu
+Student ID: 
+Email: 
 
 # EXERCISE 1: What method you used to make your peer download and upload
 #    files in parallel?  (~1-3 sentences)
@@ -34,6 +34,11 @@ One char buffer which was not being checked for buffer overflows was the char fi
 
 # EXERCISE 3: Describe the attacks you implemented for "evil mode".  Why
 #    are they attacks?  (~3-10 sentences each)
+One of our attacks was a download attack. When evil_mode is on, for each file we
+request, we follow the usual procedure to find a peer to connect to, but then,
+instead of actually downloading that file, we ask to download a file with a very
+long name, which will cause buffer overflow in peers that do not handle that
+case.
 
 # Extra credit problems
 #Extra credit problem: none

