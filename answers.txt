@@ -10,27 +10,32 @@
 # (remove the sign first). If you have any other information you'd like us to
 # know, please add it at the end of the file.
 
-# Partner 1 Name: William Lai Student ID: 404138817 Email: williamlai@ucla.edu
+# Partner 1 Name: William Lai 
+Student ID: 404138817 
+Email: williamlai@ucla.edu
 
-# Partner 2 (if you're working in a team)  Name: Brian Liu  Student ID:   Email:
+# Partner 2 (if you're working in a team)  
+Name: Brian Liu  
+Student ID:   
+Email:
 
 # EXERCISE 1: What method you used to make your peer download and upload files
 in parallel? (~1-3 sentences)
 
-(DONE- UPLOADING IN PARALLEL UNTESTED) We used the fork() function, as advised
+(B-DONE- UPLOADING IN PARALLEL UNTESTED) We used the fork() function, as advised
 in section, to download and upload files in parallel.  First, we initiate all
 downloads as specified by the command line arguments by forking a seperate child
 thread for every download request and then call task_download on each child
-thread, and exit(0) when we are finished.   After we have finished downloading
-all the files we need in parallel, we then begin listening for incoming
-requests, and for each incoming request we fork and then call task_upload(t) and
-exit(0) when we are finished.  The child_sig_handler then reaps the zombie
-threads, which have exited and havent been cleaned up.
+thread, and _exit(0) when we are finished so we do not flush the buffer.   
+After we have finished downloading all the files we need in parallel, we then begin 
+listening for incoming requests, and for each incoming request we fork and then call 
+task_upload(t) and _exit(0) when we are finished.  The child_sig_handler then reaps the 
+zombie threads, which have exited and havent been cleaned up.
 
 # EXERCISE 2A: What conditions did you find and fix that would have triggered a
 buffer overrun bug?  (~1-3 sentences each)
 
-(DONE BUT NOT TESTED) One char buffer which was not being checked for buffer
+(B-DONE BUT NOT TESTED) One char buffer which was not being checked for buffer
 overflows was the char filename buffer.  In osspeer we use strcpy to copy the
 contents of a char * pointing to a buffer of arbitrary length into the filename
 buffer.  The filename buffer can only hold FILENAMESIZ or 256 chars, so the
@@ -40,34 +45,42 @@ malicious user could request a filename of length > 255 which would cause a
 buffer overflow error since we directly strcpy without checking the length of
 the requested filename.  Our solution is to check to make sure the sizeof the
 requested filename is < 255, and only then allow them to request the file(if it
-is allowed) to avoid buffer overflows.
+is allowed) to avoid buffer overflows.  We check this by checking the size of
+the t->buf and make sure that it is less than 255+12, since the format of the
+buffer is "GET filename/0 OSP2P/n", we need to add 12 extras chars to the check
+to account for "GET /0 OSP2P\n".
 
 # EXERCISE 2B: What other robustness problems did you fix?  (~1-3 sentences
-each) (DONE AND TESTED) 1.Getting peer list from popular tracker:
+each) 
 
+(B-DONE AND TESTED) 1.Getting peer list from popular tracker:
 a. We realized the char buffer alias did not allocate enough memory to fit
 larger aliases, so we increased the size of of TASKSIZEBUF by a factor of 8 to
 accomodate for larger aliases.  We found that increasing TASKSIZEBUF by a factor
 of four was enough to accomodate make run-popular, so we further increased it by
 another factor of 2 to allow for more robustness.
 
-Upload Robustness: (DONE UNTESTED) 1. One problem is we perform no checking on
-the filename the user is requesting.  This leads to several isues:     a) buffer
-overflow (described above)     b) Unauthorized access to files (e.g.
-"../answers.txt" or "/var/pwd") - to prevent this we do not allow any filename
-requests to start with the chars "/" or "../" in the file requests, since this
-indicates the peer is trying to access a file outside of the test directory, or
-an absolute path on our machine.    (TBD) 2. The second problem is checking for
-number of peers that we are uploading to and making sure that they are not
-capping their download rate at a very slow rate and thus bogging down the
-network and taking up spots in our peer list while downloading very slowly, aka
-a DDOS attack.
+2. Upload Robustness: One problem is we perform no checking on the filename the
+user is requesting.  This leads to several isues:      
+(B-DONE AND UNTESTED) a) buffer overflow (described above)      
+(B-DONE AND UNTESTED)b) Unauthorized access
+to files (e.g. "../answers.txt" or "/var/pwd") - to prevent this we do not allow
+any filename requests to start with the chars "/" or "../" in the file requests,
+since this indicates the peer is trying to access a file outside of the test
+directory, or an absolute path on our machine.     
+(TBD) c. The second problem is checking for number of peers that we are uploading 
+to and making sure that they are not capping their download rate at a very slow rate 
+and thus bogging down the network and taking up spots in our peer list while downloading 
+very slowly, aka a DDOS attack.
 
-(TBD) Download Robustness: 1. One problem we checked for is malicious users who
+(TBD) Download Robustness: 
+1. One problem we checked for is malicious users who
 just intend on streaming infinite amounts of data by setting a hard limit on the
-filesize being received. 2. The second thing we checked for is avg download
+filesize being received. 
+2. The second thing we checked for is avg download
 speed, making sure that we not being bogged down by excessively slow uploading
-peers. 3. We also limit the number of total peers we are connected to by keeping
+peers. 
+3. We also limit the number of total peers we are connected to by keeping
 a running count of total connected peers.  We drop peers who are downloading
 slower than a specified threshold, if there are other peers waiting to be
 connected.
