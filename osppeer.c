@@ -6,6 +6,7 @@
 #include <signal.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -35,9 +36,10 @@ static int listen_port;
  * a bounded buffer that simplifies reading from and writing to peers.
  */
 
-#define TASKBUFSIZ	4096	// Size of task_t::buf
+#define TASKBUFSIZ	32768	// 
 #define FILENAMESIZ	256	// Size of task_t::filename
-
+#define MD5SUM_ON 0
+#define DEBUG 1
 #define OVERFLOW_NAME	"PIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHU"
 
 typedef enum tasktype {		// Which type of connection is this?
@@ -80,10 +82,9 @@ typedef struct task {
 // task_new(type)
 //	Create and return a new task of type 'type'.
 //	If memory runs out, returns NULL.
-static volatile int num_connections;
-void child_sig_handler(int s)
+void sigchld_handler()
 {
-	while (waitpid(-1, NULL, WNOHANG) >0 );
+    while(waitpid(-1, NULL, WNOHANG) > 0);
 }
 static task_t *task_new(tasktype_t type)
 {
@@ -490,7 +491,7 @@ task_t *start_download(task_t *tracker_task, const char *filename)
 		while ((s2 = memchr(s1, '\n', (tracker_task->buf + messagepos) - s1)))
 		{
 			if (!(p = parse_peer(s1, s2 - s1)))
-				die("osptracker responded to WANT command with unexpected format!\n");
+				die("osptracker responded to WANT command with unexpected format!");
 			p->next = t->peer_list;
 			t->peer_list = p;
 			s1 = s2 + 1;
@@ -516,7 +517,7 @@ task_t *start_download(task_t *tracker_task, const char *filename)
 	s1 = tracker_task->buf;
 	while ((s2 = memchr(s1, '\n', (tracker_task->buf + messagepos) - s1))) {
 		if (!(p = parse_peer(s1, s2 - s1)))
-			die("osptracker responded to WANT command with unexpected format!\n");
+			die("osptracker responded to WANT command with unexpected format %s %s !\n",s1,s2);
 		p->next = t->peer_list;
 		t->peer_list = p;
 		s1 = s2 + 1;
@@ -566,18 +567,18 @@ static void task_download(task_t *t, task_t *tracker_task)
 		osp2p_writef(t->peer_fd, "GET %s OSP2P\n", OVERFLOW_NAME);
 	}
 
-	ssize_t messagepos;
-	osp2p_writef(tracker_task->peer_fd, "MD5SUM %s\n", t->filename);
-	messagepos = read_tracker_response(tracker_task);
-	if (tracker_task->buf[messagepos] != '2')
-	{
-		error("* Was not able to get an MD5SUM\n");
-		goto try_again;
-	}
-	tracker_task->buf[messagepos - 1] = 0; //change newline to zero byte
-	message("* MD5:%s\n", tracker_task->buf);
-	char* checksum = (char*)malloc(messagepos*sizeof(char));
-	strncpy(checksum, tracker_task->buf, messagepos);
+	//ssize_t messagepos;
+	//osp2p_writef(tracker_task->peer_fd, "MD5SUM %s\n", t->filename);
+	//messagepos = read_tracker_response(tracker_task);
+	//if (tracker_task->buf[messagepos] != '2' && MD5SUM_ON)
+	//{
+	//	error("* Was not able to get an MD5SUM\n");
+	//	goto try_again;
+	//}
+	//tracker_task->buf[messagepos - 1] = 0; //change newline to zero byte
+	//if (MD5SUM_ON) message("* MD5:%s\n", tracker_task->buf);
+	//char* checksum = (char*)malloc(messagepos*sizeof(char));
+	//strncpy(checksum, tracker_task->buf, messagepos);
 	osp2p_writef(t->peer_fd, "GET %s OSP2P\n", t->filename);
 
 	// Open disk file for the result.
@@ -633,18 +634,18 @@ static void task_download(task_t *t, task_t *tracker_task)
 			goto try_again;
 		}
 	}
-
+/*
 	char* dg = (char*)malloc(MD5_TEXT_DIGEST_SIZE);
 	int dg_length = md5_finish_text(&mst, dg, 1); //allow at
-	message("checksum:%s, digest:%s\n", checksum, dg);
-	if (strncmp(checksum, dg, messagepos) != 0)
+	if (MD5SUM_ON) message("checksum:%s, digest:%s\n", checksum, dg);
+	if (MD5SUM_ON && strncmp(checksum, dg, messagepos) != 0)
 	{
 		error("* MD5 checksum does not match. File likely corrupted.\n");
 		goto try_again;
 	}
-	else
+	else if (MD5SUM_ON)
 		message("* MD5 checksum matches.\n");
-
+*/
 	// Empty files are usually a symptom of some error.
 	if (t->total_written > 0) {
 		message("* Downloaded '%s' was %lu bytes long\n",
@@ -724,9 +725,10 @@ static void task_upload(task_t *t)
 	}
 
 	assert(t->head == 0);
-	if (t->tail > FILENAMESIZ)
+	if (DEBUG) message("Filename: %s, head: %d tail: %d buf: |%s| buf_size: %d \n",t->filename,t->head,t->tail,t->buf,strlen(t->buf));
+	if (t->tail > FILENAMESIZ+12) //the format of the request is "GET filename\0 OSP2P\n" so we must add 12 to account for extra chars
 	{
-		message("File name would have led to overflow\n");
+		message("File name would have led to buffer overflow\n");
 		goto exit;
 	}
 	if (osp2p_snscanf(t->buf, t->tail, "GET %s OSP2P\n", t->filename) < 0) {
@@ -734,33 +736,53 @@ static void task_upload(task_t *t)
 		goto exit;
 	}
 	t->head = t->tail = 0;
-
-	t->disk_fd = open(t->filename, O_RDONLY);
-	if (t->disk_fd == -1) {
-		error("* Cannot open file %s", t->filename);
+	if (DEBUG) message("Filename: |%s|\n",t->filename);
+	char first_three_chars[3] = {0};
+	strncpy(first_three_chars,t->filename,sizeof(first_three_chars));
+	message("First Three Chars: %s",first_three_chars);
+	if (strlen(t->filename) > 255) //double check filename, filename must be <=255 since we allow 256 and strlen ignores /0 
+	{
+		message("Filename: %s exceeds length of 255, would lead to buffer overflow\n",t->filename);
 		goto exit;
 	}
-
-	message("* Transferring file %s\n", t->filename);
-	// Now, read file from disk and write it to the requesting peer.
-	while (1) {
-		int ret = write_from_taskbuf(t->peer_fd, t);
-		if (ret == TBUF_ERROR) {
-			error("* Peer write error");
+	else if (first_three_chars[0]=='/')
+	{
+		message("Downloader trying to access absolute path: %s do not allow this.",t->filename);
+		goto exit;
+	}
+	else if (strcmp(first_three_chars, "../") == 0)
+	{
+		message("Downloader trying to access file outside of directory pathname: %s , do not allow this.",t->filename);
+		goto exit;
+	}
+	else
+	{
+		t->disk_fd = open(t->filename, O_RDONLY);
+		if (t->disk_fd == -1) {
+			error("* Cannot open file %s", t->filename);
 			goto exit;
 		}
 
-		ret = read_to_taskbuf(t->disk_fd, t);
-		if (ret == TBUF_ERROR) {
-			error("* Disk read error");
-			goto exit;
-		} else if (ret == TBUF_END && t->head == t->tail)
-			/* End of file */
-			break;
+		message("* Transferring file %s\n", t->filename);
+		// Now, read file from disk and write it to the requesting peer.
+		while (1) {
+			int ret = write_from_taskbuf(t->peer_fd, t);
+			if (ret == TBUF_ERROR) {
+				error("* Peer write error");
+				goto exit;
+			}
+
+			ret = read_to_taskbuf(t->disk_fd, t);
+			if (ret == TBUF_ERROR) {
+				error("* Disk read error");
+				goto exit;
+			} else if (ret == TBUF_END && t->head == t->tail)
+				/* End of file */
+				break;
+		}
+
+		message("* Upload of %s complete\n", t->filename);
 	}
-
-	message("* Upload of %s complete\n", t->filename);
-
     exit:
 	task_free(t);
 }
@@ -776,16 +798,15 @@ int main(int argc, char *argv[])
 	char *s;
 	const char *myalias;
 	struct passwd *pwent;
-	struct sigaction sa; //for signal SIGCHLD (when child is done)
-	sa.sa_handler = child_sig_handler; //handler for reaping zombie child processess
-	sigemptyset(&sa.sa_mask);
-	sa.sa_flags = SA_RESTART;
-	if (sigaction(SIGCHLD, &sa, NULL) == -1)
-	{
-		error("sigaction");
-		exit(1);
-	}
 
+	struct sigaction sa; //for signal SIGCHLD (when child is done)
+     sa.sa_handler = sigchld_handler; // reap all dead processes
+     sigemptyset(&sa.sa_mask);
+     sa.sa_flags = SA_RESTART;
+     if (sigaction(SIGCHLD, &sa, NULL) == -1) {
+         perror("sigaction");
+         exit(1);
+     }
 	// Default tracker is read.cs.ucla.edu
 	osp2p_sscanf("131.179.80.139:11111", "%I:%d",
 		     &tracker_addr, &tracker_port);
@@ -868,29 +889,32 @@ int main(int argc, char *argv[])
 	{
 		if ((t = start_download(tracker_task, argv[1])))
 		{
+			
 			download_pid = fork(); 
 			if (download_pid < 0 ) //error
 			{
 				if (errno == EAGAIN)
 				{
-					error("* EAGAIN error, cannot allocate enough memory for child or max number of processes created.")
+					error("* EAGAIN error, cannot allocate enough memory for child or max number of processes created.");
 				}
 				else if (errno == ENOMEM)
 				{
-					error("* ENOMEM error, failed to allocate kernel structures because not enough memory.")
+					error("* ENOMEM error, failed to allocate kernel structures because not enough memory.");
 				}
 				else if (errno == ENOSYS)
 				{
-					error("* ENOSYS error, fork() method is not supported.")
+					error("* ENOSYS error, fork() method is not supported.");
 				}
 
 			}
-			else if (download_pid = 0) //child thread
+			else if (download_pid == 0) //child thread
 			{
-
+				//usleep(5000); //added so we don't hit the tracker too fast (sleeps the thread for .0005 seconds)
+				message("START downloading filename: %s\n",argv[1]);
 				task_download(t, tracker_task);
+				message("DONE downloading filename: %s\n",argv[1]);
 				//TBD keep track of # of child threads? (in case of ddos attack)
-				exit(0);
+				_exit(0);
 			}
 			else  //parent thread
 			{
@@ -908,22 +932,23 @@ int main(int argc, char *argv[])
 			{
 				if (errno == EAGAIN)
 				{
-					error("* EAGAIN error, cannot allocate enough memory for child or max number of processes created.")
+					error("* EAGAIN error, cannot allocate enough memory for child or max number of processes created.");
 				}
 				else if (errno == ENOMEM)
 				{
-					error("* ENOMEM error, failed to allocate kernel structures because not enough memory.")
+					error("* ENOMEM error, failed to allocate kernel structures because not enough memory.");
 				}
 				else if (errno == ENOSYS)
 				{
-					error("* ENOSYS error, fork() method is not supported.")
+					error("* ENOSYS error, fork() method is not supported.");
 				}
 
 			}
-			else if (download_pid = 0) //child thread
+			else if (upload_pid == 0) //child thread
 			{
-
+				message("START uploading\n");
 				task_upload(t);
+				message("DONE uploading\n");
 				//TBD keep track of # of child threads? (in case of ddos attack)
 				exit(0);
 			}
