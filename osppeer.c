@@ -80,6 +80,11 @@ typedef struct task {
 // task_new(type)
 //	Create and return a new task of type 'type'.
 //	If memory runs out, returns NULL.
+static volatile int num_connections;
+void child_sig_handler(int s)
+{
+	while (waitpid(-1, NULL, WNOHANG) >0 );
+}
 static task_t *task_new(tasktype_t type)
 {
 	task_t *t = (task_t *) malloc(sizeof(task_t));
@@ -738,6 +743,15 @@ int main(int argc, char *argv[])
 	char *s;
 	const char *myalias;
 	struct passwd *pwent;
+	struct sigaction sa; //for signal SIGCHLD (when child is done)
+	sa.sa_handler = child_sig_handler; //handler for reaping zombie child processess
+	sigemptyset(&sa.sa_mask);
+	sa.sa_flags = SA_RESTART;
+	if (sigaction(SIGCHLD, &sa, NULL) == -1)
+	{
+		error("sigaction");
+		exit(1);
+	}
 
 	// Default tracker is read.cs.ucla.edu
 	osp2p_sscanf("131.179.80.139:11111", "%I:%d",
@@ -814,19 +828,76 @@ int main(int argc, char *argv[])
 		//if ((t = start_download(tracker_task, OVERFLOW_NAME)))
 		//	task_download(t, tracker_task);
 	}
-
+	pid_t download_pid;
+	pid_t upload_pid;
 	// First, download files named on command line.
 	for (; argc > 1; argc--, argv++)
 	{
 		if ((t = start_download(tracker_task, argv[1])))
 		{
-			task_download(t, tracker_task);
+			download_pid = fork(); 
+			if (download_pid < 0 ) //error
+			{
+				if (errno == EAGAIN)
+				{
+					error("* EAGAIN error, cannot allocate enough memory for child or max number of processes created.")
+				}
+				else if (errno == ENOMEM)
+				{
+					error("* ENOMEM error, failed to allocate kernel structures because not enough memory.")
+				}
+				else if (errno == ENOSYS)
+				{
+					error("* ENOSYS error, fork() method is not supported.")
+				}
+
+			}
+			else if (download_pid = 0) //child thread
+			{
+
+				task_download(t, tracker_task);
+				//TBD keep track of # of child threads? (in case of ddos attack)
+				exit(0);
+			}
+			else  //parent thread
+			{
+				//dont think we have to do anything here
+			}
+			
 		}
 	}
 
 	// Then accept connections from other peers and upload files to them!
 	while ((t = task_listen(listen_task)))
-		task_upload(t);
+		{
+			upload_pid = fork();
+			if (upload_pid < 0 ) //error
+			{
+				if (errno == EAGAIN)
+				{
+					error("* EAGAIN error, cannot allocate enough memory for child or max number of processes created.")
+				}
+				else if (errno == ENOMEM)
+				{
+					error("* ENOMEM error, failed to allocate kernel structures because not enough memory.")
+				}
+				else if (errno == ENOSYS)
+				{
+					error("* ENOSYS error, fork() method is not supported.")
+				}
 
+			}
+			else if (download_pid = 0) //child thread
+			{
+
+				task_upload(t);
+				//TBD keep track of # of child threads? (in case of ddos attack)
+				exit(0);
+			}
+			else  //parent thread
+			{
+				//dont think we have to do anything here
+			}
+		}	
 	return 0;
 }
