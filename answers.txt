@@ -36,11 +36,18 @@ One char buffer which was not being checked for buffer overflows was the char fi
 
 # EXERCISE 3: Describe the attacks you implemented for "evil mode".  Why
 #    are they attacks?  (~3-10 sentences each)
-One of our attacks was a download attack. When evil_mode is on, for each file we
+One of our attacks is a download attack. When evil_mode is on, for each file we
 request, we follow the usual procedure to find a peer to connect to, but then,
 instead of actually downloading that file, we ask to download a file with a very
 long name, which will cause buffer overflow in peers that do not handle that
-case.
+case. Although there is a check for length with the snscanf function, the maximum
+length given in the skeleton code is the size of the buffer, which is 4096, not
+the maximum file size, which is 256. As stated in 2A, we need to check for this.
+
+The other attack is an uploader attack. When evil_mode is on, we simply have our
+peer run in an infinite loop without sending any data, which will cause the peer
+requesting the file to wait indefinitely without doing anything if it is not
+fixed to run requests in parallel and/or timeout after a certain amount of time.
 
 # Extra credit problems
 #Extra credit problem: none

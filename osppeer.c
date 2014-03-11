@@ -566,6 +566,18 @@ static void task_download(task_t *t, task_t *tracker_task)
 		osp2p_writef(t->peer_fd, "GET %s OSP2P\n", OVERFLOW_NAME);
 	}
 
+	ssize_t messagepos;
+	osp2p_writef(tracker_task->peer_fd, "MD5SUM %s\n", t->filename);
+	messagepos = read_tracker_response(tracker_task);
+	if (tracker_task->buf[messagepos] != '2')
+	{
+		error("* Was not able to get an MD5SUM\n");
+		goto try_again;
+	}
+	tracker_task->buf[messagepos - 1] = 0; //change newline to zero byte
+	message("* MD5:%s\n", tracker_task->buf);
+	char* checksum = (char*)malloc(messagepos*sizeof(char));
+	strncpy(checksum, tracker_task->buf, messagepos);
 	osp2p_writef(t->peer_fd, "GET %s OSP2P\n", t->filename);
 
 	// Open disk file for the result.
@@ -596,6 +608,9 @@ static void task_download(task_t *t, task_t *tracker_task)
 
 	// Read the file into the task buffer from the peer,
 	// and write it from the task buffer onto disk.
+	md5_state_t mst;
+	md5_init(&mst);
+	char* data = (char*)malloc(TASKBUFSIZ*sizeof(char));
 	while (1) {
 		int ret = read_to_taskbuf(t->peer_fd, t);
 		if (ret == TBUF_ERROR) {
@@ -604,13 +619,31 @@ static void task_download(task_t *t, task_t *tracker_task)
 		} else if (ret == TBUF_END && t->head == t->tail)
 			/* End of file */
 			break;
+		unsigned headpos = (t->head % TASKBUFSIZ);
+		unsigned tailpos = (t->tail % TASKBUFSIZ);
+		if (headpos < tailpos)
+			strncpy(data, &t->buf[headpos], tailpos - headpos);
+		else
+			strncpy(data, &t->buf[headpos], TASKBUFSIZ - headpos);
 
+		md5_append(&mst, (md5_byte_t*)data, ret);
 		ret = write_from_taskbuf(t->disk_fd, t);
 		if (ret == TBUF_ERROR) {
 			error("* Disk write error");
 			goto try_again;
 		}
 	}
+
+	char* dg = (char*)malloc(MD5_TEXT_DIGEST_SIZE);
+	int dg_length = md5_finish_text(&mst, dg, 1); //allow at
+	message("checksum:%s, digest:%s\n", checksum, dg);
+	if (strncmp(checksum, dg, messagepos) != 0)
+	{
+		error("* MD5 checksum does not match. File likely corrupted.\n");
+		goto try_again;
+	}
+	else
+		message("* MD5 checksum matches.\n");
 
 	// Empty files are usually a symptom of some error.
 	if (t->total_written > 0) {
