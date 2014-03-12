@@ -41,7 +41,7 @@ static int listen_port;
 #define MD5SUM_ON 0
 #define DEBUG 1
 #define OVERFLOW_NAME	"PIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHU"
-
+#define MAXFILESIZ 2097152 // 2 megabytes
 typedef enum tasktype {		// Which type of connection is this?
 	TASK_TRACKER,		// => Tracker connection
 	TASK_PEER_LISTEN,	// => Listens for upload requests
@@ -498,7 +498,11 @@ task_t *start_download(task_t *tracker_task, const char *filename)
 		}
 		return t;
 	}	
-
+	if (strlen(filename) > 255  && !evil_mode)
+	{
+		die("*Filename is longer than 255 chars please choose a filename which is less than 256 characters.");
+		goto exit;
+	}
 	osp2p_writef(tracker_task->peer_fd, "WANT %s\n", filename);
 	messagepos = read_tracker_response(tracker_task);
 	if (tracker_task->buf[messagepos] != '2') {
@@ -511,6 +515,8 @@ task_t *start_download(task_t *tracker_task, const char *filename)
 		error("* Error while allocating task");
 		goto exit;
 	}
+	if (DEBUG) message("input filename is: %s",filename);
+	
 	strcpy(t->filename, filename);
 
 	// add peers
@@ -660,6 +666,12 @@ static void task_download(task_t *t, task_t *tracker_task)
 		task_free(t);
 		return;
 	}
+	if (t->total_written>MAXFILESIZ)
+	{
+		error("*Download exceeded max file size, peer might be attempting to stream us infinite data.");
+		//should we memclear here?
+		return;
+	}
 	error("* Download was empty, trying next peer\n");
 
     try_again:
@@ -752,7 +764,7 @@ static void task_upload(task_t *t)
 	}
 	else if (strcmp(first_three_chars, "../") == 0)
 	{
-		message("Downloader trying to access file outside of directory pathname: %s , do not allow this.",t->filename);
+		error("Downloader trying to access file outside of directory pathname: %s , do not allow this.",t->filename);
 		goto exit;
 	}
 	else
@@ -792,7 +804,7 @@ static void task_upload(task_t *t)
 //	The main loop!
 int main(int argc, char *argv[])
 {
-	task_t *tracker_task, *listen_task, *t;
+	task_t *tracker_task, *listen_task, *t, *temp;
 	struct in_addr tracker_addr;
 	int tracker_port;
 	char *s;
@@ -803,10 +815,7 @@ int main(int argc, char *argv[])
      sa.sa_handler = sigchld_handler; // reap all dead processes
      sigemptyset(&sa.sa_mask);
      sa.sa_flags = SA_RESTART;
-     if (sigaction(SIGCHLD, &sa, NULL) == -1) {
-         perror("sigaction");
-         exit(1);
-     }
+    
 	// Default tracker is read.cs.ucla.edu
 	osp2p_sscanf("131.179.80.139:11111", "%I:%d",
 		     &tracker_addr, &tracker_port);
@@ -918,7 +927,9 @@ int main(int argc, char *argv[])
 			}
 			else  //parent thread
 			{
-				//dont think we have to do anything here
+				 if (sigaction(SIGCHLD, &sa, NULL) == -1) {
+        		 perror("sigaction");
+     			}
 			}
 			
 		}
@@ -927,6 +938,8 @@ int main(int argc, char *argv[])
 	// Then accept connections from other peers and upload files to them!
 	while ((t = task_listen(listen_task)))
 		{
+			//task_upload(t);
+			
 			upload_pid = fork();
 			if (upload_pid < 0 ) //error
 			{
@@ -945,16 +958,19 @@ int main(int argc, char *argv[])
 
 			}
 			else if (upload_pid == 0) //child thread
-			{
-				message("START uploading\n");
+			{	
+				message("START uploading: message: %s\n",t->buf);
 				task_upload(t);
 				message("DONE uploading\n");
 				//TBD keep track of # of child threads? (in case of ddos attack)
-				exit(0);
+				//_exit(0);
 			}
 			else  //parent thread
 			{
-				//dont think we have to do anything here
+				 if (sigaction(SIGCHLD, &sa, NULL) == -1) {
+        		 perror("sigaction");
+     			}
+				
 			}
 		}	
 	return 0;

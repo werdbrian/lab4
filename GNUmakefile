@@ -47,6 +47,14 @@ run-popular: osppeer
 	@echo + ./osppeer -dtest -t11115 cat1.jpg cat2.jpg cat3.jpg
 	@./osppeer -dtest -t11115 cat1.jpg cat2.jpg cat3.jpg
 
+run-overflow-test: osppeer
+	@-/bin/rm -rf test
+	@echo + mkdir test
+	@mkdir test
+	@echo + ./osppeer -dtest -t11111 sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssdfsfssdfsfsdfsdfdsfssssssssssssdddddddd
+	@./osppeer -dtest -t11111 sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssdfsfssdfsfsdfsdfdsfssssssssssssdddddddd
+
+
 clean:
 	-rm -f *.o *~ osptracker osptracker.cc osppeer
 
