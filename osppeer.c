@@ -82,8 +82,9 @@ typedef struct task {
 // task_new(type)
 //	Create and return a new task of type 'type'.
 //	If memory runs out, returns NULL.
-void sigchld_handler()
+void sigchld_handler(int s)
 {
+	int a=s;
     while(waitpid(-1, NULL, WNOHANG) > 0);
 }
 static task_t *task_new(tasktype_t type)
@@ -506,7 +507,7 @@ task_t *start_download(task_t *tracker_task, const char *filename)
 	osp2p_writef(tracker_task->peer_fd, "WANT %s\n", filename);
 	messagepos = read_tracker_response(tracker_task);
 	if (tracker_task->buf[messagepos] != '2') {
-		error("* Tracker error message while requesting '%s':\n%s",
+	 	error("* Tracker error message while requesting '%s':\n%s",
 		      filename, &tracker_task->buf[messagepos]);
 		goto exit;
 	}
@@ -569,9 +570,11 @@ static void task_download(task_t *t, task_t *tracker_task)
 
 	if (evil_mode)
 	{
-		message("Attempting download attack...\n");
+		message("Attempting download buffer overflow attack...\n");
 		osp2p_writef(t->peer_fd, "GET %s OSP2P\n", OVERFLOW_NAME);
 	}
+
+
 
 	//ssize_t messagepos;
 	//osp2p_writef(tracker_task->peer_fd, "MD5SUM %s\n", t->filename);
@@ -585,7 +588,7 @@ static void task_download(task_t *t, task_t *tracker_task)
 	//if (MD5SUM_ON) message("* MD5:%s\n", tracker_task->buf);
 	//char* checksum = (char*)malloc(messagepos*sizeof(char));
 	//strncpy(checksum, tracker_task->buf, messagepos);
-	osp2p_writef(t->peer_fd, "GET %s OSP2P\n", t->filename);
+	if (!evil_mode) osp2p_writef(t->peer_fd, "GET %s OSP2P\n", t->filename);
 
 	// Open disk file for the result.
 	// If the filename already exists, save the file in a name like
@@ -653,6 +656,13 @@ static void task_download(task_t *t, task_t *tracker_task)
 		message("* MD5 checksum matches.\n");
 */
 	// Empty files are usually a symptom of some error.
+	if (t->total_written>MAXFILESIZ)
+	{
+		error("*Download exceeded max file size, peer might be attempting to stream us infinite data.");
+		goto try_again; //this will pop pear then try to download the file from another peer on the tracker
+		//should we memclear here?
+		return;
+	}
 	if (t->total_written > 0) {
 		message("* Downloaded '%s' was %lu bytes long\n",
 			t->disk_filename, (unsigned long) t->total_written);
@@ -666,12 +676,7 @@ static void task_download(task_t *t, task_t *tracker_task)
 		task_free(t);
 		return;
 	}
-	if (t->total_written>MAXFILESIZ)
-	{
-		error("*Download exceeded max file size, peer might be attempting to stream us infinite data.");
-		//should we memclear here?
-		return;
-	}
+
 	error("* Download was empty, trying next peer\n");
 
     try_again:
@@ -704,7 +709,6 @@ static task_t *task_listen(task_t *listen_task)
 
 	message("* Got connection from %s:%d\n",
 		inet_ntoa(peer_addr.sin_addr), ntohs(peer_addr.sin_port));
-
 	t = task_new(TASK_UPLOAD);
 	t->peer_fd = fd;
 	return t;
@@ -720,9 +724,12 @@ static void task_upload(task_t *t)
 	assert(t->type == TASK_UPLOAD);
 	if (evil_mode)
 	{
+		int client_alive=1;
 		message("Infinite upload loop\n");
-		while (1)
-		{}
+		while (client_alive)
+		{
+			 client_alive = write(t->peer_fd, &t->buf[0], 1);
+		}
 	}
 			
 	// First, read the request from the peer.
@@ -754,26 +761,33 @@ static void task_upload(task_t *t)
 	message("First Three Chars: %s",first_three_chars);
 	if (strlen(t->filename) > 255) //double check filename, filename must be <=255 since we allow 256 and strlen ignores /0 
 	{
-		message("Filename: %s exceeds length of 255, would lead to buffer overflow\n",t->filename);
+		error("Filename: %s exceeds length of 255, would lead to buffer overflow\n",t->filename);
 		goto exit;
 	}
-	else if (first_three_chars[0]=='/')
+	 if (first_three_chars[0]=='/') //check for absolute path file stealing
+	{ 
+		error("Downloader trying to access absolute path: %s do not allow this.",t->filename);
+		goto exit;
+	}
+		 if (first_three_chars[0]=='~') //check for file stealing from home dir
 	{
-		message("Downloader trying to access absolute path: %s do not allow this.",t->filename);
+		error("Downloader trying to access home dir: %s do not allow this.",t->filename);
 		goto exit;
 	}
-	else if (strcmp(first_three_chars, "../") == 0)
+	 if (strncmp(first_three_chars, "../",3) == 0) //check for file stealing e.g. ../answers.txt
 	{
 		error("Downloader trying to access file outside of directory pathname: %s , do not allow this.",t->filename);
 		goto exit;
 	}
-	else if (strcmp(first_three_chars, "./.") == 0)
+	if (strncmp(first_three_chars, "./.",3) == 0)//check for file stealing e.g. ./../answers.txt
 	{
 		error("Downloader potentially trying to access file outside of directory pathname: %s , do not allow this.",t->filename);
 		goto exit;
 	}
-	else
+	if (!(isalpha(first_three_chars[0]) || isdigit(first_three_chars[0])))
 	{
+		error("Downloader potentially trying to access file outside of directory pathname: %s , do not allow this.",t->filename);	
+	}
 		t->disk_fd = open(t->filename, O_RDONLY);
 		if (t->disk_fd == -1) {
 			error("* Cannot open file %s", t->filename);
@@ -799,7 +813,7 @@ static void task_upload(task_t *t)
 		}
 
 		message("* Upload of %s complete\n", t->filename);
-	}
+	
     exit:
 	task_free(t);
 }
@@ -882,22 +896,24 @@ int main(int argc, char *argv[])
 "         -b[MODE]     Evil mode!!!!!!!!\n");
 		exit(0);
 	}
-
-	// Connect to the tracker and register our files.
-	tracker_task = start_tracker(tracker_addr, tracker_port);
-	listen_task = start_listen();
-	register_files(tracker_task, myalias);
-
-	if (evil_mode)
+	 if (evil_mode)
 	{
 		message("Initializing evil...\n");
+		myalias = (const char *) malloc(40);
+		sprintf((char *) myalias, "iamt3hevil");
 		//if ((t = start_download(tracker_task, "../answers.txt")))
 		//	task_download(t, tracker_task);
 		//if ((t = start_download(tracker_task, OVERFLOW_NAME)))
 		//	task_download(t, tracker_task);
 	}
+	// Connect to the tracker and register our files.
+	tracker_task = start_tracker(tracker_addr, tracker_port);
+	listen_task = start_listen();
+	register_files(tracker_task, myalias);
+
 	pid_t download_pid;
 	pid_t upload_pid;
+	message("my alias is %s",myalias);
 	// First, download files named on command line.
 	for (; argc > 1; argc--, argv++)
 	{
@@ -932,22 +948,22 @@ int main(int argc, char *argv[])
 			}
 			else  //parent thread
 			{
-				// if (sigaction(SIGCHLD, &sa, NULL) == -1) {
-        		 //perror("sigaction");
-     		//	}
+				 if (sigaction(SIGCHLD, &sa, NULL) == -1) {
+        		 perror("sigaction");
+     			}
 			}
 			
 		}
 	}
 
 	// Then accept connections from other peers and upload files to them!
-	while ((t = task_listen(listen_task)))
+
+	
+while ((t = task_listen(listen_task)))
+	{
+		upload_pid = fork();
+		if (upload_pid < 0 ) //error
 		{
-			//task_upload(t);
-			
-			upload_pid = fork();
-			if (upload_pid < 0 ) //error
-			{
 				if (errno == EAGAIN)
 				{
 					error("* EAGAIN error, cannot allocate enough memory for child or max number of processes created.");
@@ -960,23 +976,16 @@ int main(int argc, char *argv[])
 				{
 					error("* ENOSYS error, fork() method is not supported.");
 				}
-
-			}
-			else if (upload_pid == 0) //child thread
-			{	
-				message("START uploading: message: %s\n",t->buf);
+			}	
+		else if (upload_pid == 0)
+		{
+				sleep(1); //sleep for 1 second in before forking, therefore rate limiting people who try to flood us with connections
+				message("START uploading\n");
 				task_upload(t);
 				message("DONE uploading\n");
-				//TBD keep track of # of child threads? (in case of ddos attack)
-				exit(0);
-			}
-			else  //parent thread
-			{
-				// if (sigaction(SIGCHLD, &sa, NULL) == -1) {
-        		 //perror("sigaction");
-     		//	}
-				
-			}
-		}	
+				_exit(0);
+		}
+	}	
+
 	return 0;
 }

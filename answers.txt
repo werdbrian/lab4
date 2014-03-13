@@ -62,6 +62,7 @@ directory, or an absolute path on our machine.
 to and making sure that they are not capping their download rate at a very slow rate 
 and thus bogging down the network and taking up spots in our peer list while downloading 
 very slowly, aka a DDOS attack.
+d) DDOS attacks - we experienced one student who would flood our program with a download request commands but with an empty file name.  He did this at such a fast rate it crashed our program.  To remedy this we sleep 1 second in between fulfilling upload request effectively rate limiting the number of requests to 1 per second at the worst, which gives us enough time to process the request and avoid buildling a queue of unfulfilled requests.
 
  Download Robustness: 
 (done)1. One problem we checked for is malicious users who
@@ -70,7 +71,7 @@ filesize being received.
 (TBD)2. The second thing we checked for is avg download
 speed, making sure that we not being bogged down by excessively slow uploading
 peers. 
-3. We also limit the number of total peers we are connected to by keeping
+(TBD)3. We also limit the number of total peers we are connected to by keeping
 a running count of total connected peers.  We drop peers who are downloading
 slower than a specified threshold, if there are other peers waiting to be
 connected.
@@ -96,6 +97,9 @@ The other attack is an uploader attack. When evil_mode is on, we simply have our
 peer run in an infinite loop without sending any data, which will cause the peer
 requesting the file to wait indefinitely without doing anything if it is not
 fixed to run requests in parallel and/or timeout after a certain amount of time.
+
+We also implemented a variation of the attack described above, except we just stream the user
+an infinite amount of data.  
 
 A final attack we implemented is an attempt to steal other people's files by
 requesting filenames outside of the test directory such as "../answers.txt".  If
