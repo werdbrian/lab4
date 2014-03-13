@@ -1,55 +1,111 @@
-# Fill in your name, student ID, and email address in this file.
-# If you are working in a team, fill out the information for both team 
-# members.
+# Fill in your name, student ID, and email address in this file. If you are
+# working in a team, fill out the information for both team  members.
 
 # SUBMIT THE LAB ONLY ONCE (from only one partner). This file will be
-# automatically parsed in order to give both team members credit for the
-# lab.
+# automatically parsed in order to give both team members credit for the lab.
 
-# You need to fill in the EXERCISE sections describing your solutions
-# for Tasks 1, 2, and 3, as well as write the corresponding code.
-# If you did one or more extra credit problems, indicate which one in the
-# appropriate section below (remove the # sign first). If you have any other
-# information you'd like us to know, please add it at the end of the file.
+# You need to fill in the EXERCISE sections describing your solutions for Tasks
+# 1, 2, and 3, as well as write the corresponding code. If you did one or more
+# extra credit problems, indicate which one in the appropriate section below
+# (remove the sign first). If you have any other information you'd like us to
+# know, please add it at the end of the file.
 
-# Partner 1
-Name: William Lai
-Student ID: 404138817
+# Partner 1 Name: William Lai 
+Student ID: 404138817 
 Email: williamlai@ucla.edu
 
-# Partner 2 (if you're working in a team)
-Name: Brian Liu
-Student ID: 
-Email: 
+# Partner 2 (if you're working in a team)  
+Name: Brian Liu  
+Student ID:   
+Email:
 
-# EXERCISE 1: What method you used to make your peer download and upload
-#    files in parallel?  (~1-3 sentences)
-We used the fork() function, as advised in section, to download and upload files in parallel.  
-For downloads:  We fork a seperate child thread for every download request we have as specified by the command line.  This thread then will call the task_download function
+# EXERCISE 1: What method you used to make your peer download and upload files
+in parallel? (~1-3 sentences)
 
-# EXERCISE 2A: What conditions did you find and fix that would have
-#    triggered a buffer overrun bug?  (~1-3 sentences each)
-One char buffer which was not being checked for buffer overflows was the char filename buffer.  In osspeer we use strcpy to copy the contents of a char * pointing to a buffer of arbitrary length into the filename buffer.  The filename buffer can only hold FILENAMESIZ or 256 chars, so the longest filename it can handle without bufferoverflows is a string of length 255 (since we must account for ending with the null terminating characte.)  A malicious user could request a filename of length > 255 which would cause a buffer overflow error since we directly strcpy without checking the length of the requested filename.  Our solution is to check to make sure the sizeof the requested filename is < 255, and only then allow them to request the file to avoid buffer overflows. 
+(B-DONE- UPLOADING IN PARALLEL UNTESTED) We used the fork() function, as advised
+in section, to download and upload files in parallel.  First, we initiate all
+downloads as specified by the command line arguments by forking a seperate child
+thread for every download request and then call task_download on each child
+thread, and _exit(0) when we are finished so we do not flush the buffer.   
+After we have finished downloading all the files we need in parallel, we then begin 
+listening for incoming requests, and for each incoming request we fork and then call 
+task_upload(t) and _exit(0) when we are finished.  The child_sig_handler then reaps the 
+zombie threads, which are no longer in a "runnable" state but havent been killed yet.  
+
+# EXERCISE 2A: What conditions did you find and fix that would have triggered
+a buffer overrun bug?  (~1-3 sentences each)  We found two places where we
+detected possibilities for a buffer overflow bug: when the user downloads or
+uploads a file.  In the start_download function, we perform a direct strcpy without first checking to see if the filename is less than FILENAMESIZE-1 or 255(to account for null terminating char).  To fix this, we make sure strlen(filename)<255 in the start_download function.  A filename larger than this will overwrite parts memory it shouldn't.  A second place we do not perform char buffer checking and makes us susceptible to buffer overflow attacks is in the task upload function.We check
+this by checking the size of the t->buf and make sure that it is less than
+255+12, since the format of the buffer is "GET filename/0 OSP2P/n", we need to
+add 12 extras chars to the check to account for "GET /0 OSP2P\n".
 
 # EXERCISE 2B: What other robustness problems did you fix?  (~1-3 sentences
-#    each)
+each) 
 
-# EXERCISE 3: Describe the attacks you implemented for "evil mode".  Why
-#    are they attacks?  (~3-10 sentences each)
+(B-DONE AND TESTED) 1.Getting peer list from popular tracker:
+a. We realized the char buffer alias did not allocate enough memory to fit
+larger aliases, so we increased the size of of TASKSIZEBUF by a factor of 8 to
+accomodate for larger aliases.  We found that increasing TASKSIZEBUF by a factor
+of four was enough to accomodate make run-popular, so we further increased it by
+another factor of 2 to allow for more robustness.
+
+2. Upload Robustness: One problem is we perform no checking on the filename the
+user is requesting.  This leads to several isues:      
+(B-DONE AND UNTESTED) a) buffer overflow (described above)      
+(B-DONE AND UNTESTED)b) Unauthorized access
+to files (e.g. "../answers.txt" or "/var/pwd") - to prevent this we do not allow
+any filename requests to start with the chars "/" or "../" in the file requests,
+since this indicates the peer is trying to access a file outside of the test
+directory, or an absolute path on our machine.   
+(TBD) c. The second problem is checking for number of peers that we are uploading 
+to and making sure that they are not capping their download rate at a very slow rate 
+and thus bogging down the network and taking up spots in our peer list while downloading 
+very slowly, aka a DDOS attack.
+d) DDOS attacks - we experienced one student who would flood our program with a download request commands but with an empty file name.  He did this at such a fast rate it crashed our program.  To remedy this we sleep 1 second in between fulfilling upload request effectively rate limiting the number of requests to 1 per second at the worst, which gives us enough time to process the request and avoid buildling a queue of unfulfilled requests.
+
+ Download Robustness: 
+(done)1. One problem we checked for is malicious users who
+just intend on streaming infinite amounts of data by setting a hard limit on the
+filesize being received. 
+(TBD)2. The second thing we checked for is avg download
+speed, making sure that we not being bogged down by excessively slow uploading
+peers. 
+(TBD)3. We also limit the number of total peers we are connected to by keeping
+a running count of total connected peers.  We drop peers who are downloading
+slower than a specified threshold, if there are other peers waiting to be
+connected.
+
+(DONE works for downloads) Child Process Reaping: 1. We also implemented proper handling of
+zombie child threads, or child threads which have exited but are not yet killed.
+If we do not perform proper clean up of these zombie threads they will linger
+and eventually we will run out of memory to assign to new threads.
+
+# EXERCISE 3: Describe the attacks you implemented for "evil mode".  Why # are
+they attacks?  (~3-10 sentences each)
+
 One of our attacks is a download attack. When evil_mode is on, for each file we
 request, we follow the usual procedure to find a peer to connect to, but then,
 instead of actually downloading that file, we ask to download a file with a very
 long name, which will cause buffer overflow in peers that do not handle that
-case. Although there is a check for length with the snscanf function, the maximum
-length given in the skeleton code is the size of the buffer, which is 4096, not
-the maximum file size, which is 256. As stated in 2A, we need to check for this.
+case. Although there is a check for length with the snscanf function, the
+maximum length given in the skeleton code is the size of the buffer, which is
+4096, not the maximum file size, which is 256. As stated in 2A, we need to check
+for this.
 
 The other attack is an uploader attack. When evil_mode is on, we simply have our
 peer run in an infinite loop without sending any data, which will cause the peer
 requesting the file to wait indefinitely without doing anything if it is not
 fixed to run requests in parallel and/or timeout after a certain amount of time.
 
-# Extra credit problems
-#Extra credit problem: none
+We also implemented a variation of the attack described above, except we just stream the user
+an infinite amount of data.  
+
+A final attack we implemented is an attempt to steal other people's files by
+requesting filenames outside of the test directory such as "../answers.txt".  If
+the user does not properly check for input in filename download requests, he is
+succeptible to the buffer overflow and the steal files security loop hole.
+
+# Extra credit problems #Extra credit problem: none
 
 # Add any other information you'd like us to know below this line.
