@@ -20,18 +20,12 @@ run: osppeer
 	@./osppeer -dtest -t11111 cat1.jpg cat2.jpg cat3.jpg
 
 runtest: osppeer
-	@-/bin/rm -rf test
-	@echo + mkdir test
-	@mkdir test
 	@echo + ./osppeer -dtest -t11111 cat1.jpg 
 	@./osppeer -dtest -t11111 cat1.jpg 
 
 runevil: osppeer
-	@-/bin/rm -rf test
-	@echo + mkdir test
-	@mkdir test
-	@echo + ./osppeer -b -dtest -t11111 
-	@./osppeer -b -dtest -t11111 
+	@echo + ./osppeer -b -dtest -t11111
+	@./osppeer -b -dtest -t111111
 	
 run-good: osppeer
 	@-/bin/rm -rf test
@@ -62,7 +56,6 @@ run-popular: osppeer
 	@./osppeer -dtest -t11115 cat1.jpg cat2.jpg cat3.jpg
 
 run-overflow-test: osppeer
-	@-/bin/rm -rf test
 	@echo + mkdir test
 	@mkdir test
 	@echo + ./osppeer -dtest -t11111 sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssdfsfssdfsfsdfsdfdsfssssssssssssdddddddd

