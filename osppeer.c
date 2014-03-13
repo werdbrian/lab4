@@ -767,6 +767,11 @@ static void task_upload(task_t *t)
 		error("Downloader trying to access file outside of directory pathname: %s , do not allow this.",t->filename);
 		goto exit;
 	}
+	else if (strcmp(first_three_chars, "./.") == 0)
+	{
+		error("Downloader potentially trying to access file outside of directory pathname: %s , do not allow this.",t->filename);
+		goto exit;
+	}
 	else
 	{
 		t->disk_fd = open(t->filename, O_RDONLY);
@@ -927,9 +932,9 @@ int main(int argc, char *argv[])
 			}
 			else  //parent thread
 			{
-				 if (sigaction(SIGCHLD, &sa, NULL) == -1) {
-        		 perror("sigaction");
-     			}
+				// if (sigaction(SIGCHLD, &sa, NULL) == -1) {
+        		 //perror("sigaction");
+     		//	}
 			}
 			
 		}
@@ -963,13 +968,13 @@ int main(int argc, char *argv[])
 				task_upload(t);
 				message("DONE uploading\n");
 				//TBD keep track of # of child threads? (in case of ddos attack)
-				//_exit(0);
+				exit(0);
 			}
 			else  //parent thread
 			{
-				 if (sigaction(SIGCHLD, &sa, NULL) == -1) {
-        		 perror("sigaction");
-     			}
+				// if (sigaction(SIGCHLD, &sa, NULL) == -1) {
+        		 //perror("sigaction");
+     		//	}
 				
 			}
 		}	
