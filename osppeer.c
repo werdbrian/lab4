@@ -38,10 +38,10 @@ static int listen_port;
 
 #define TASKBUFSIZ	32768	// 
 #define FILENAMESIZ	256	// Size of task_t::filename
-#define MD5SUM_ON 0
-#define DEBUG 1
+#define MD5SUM_ON 	1
+#define DEBUG 		1
 #define OVERFLOW_NAME	"PIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHUPIKACHU"
-#define MAXFILESIZ 2097152 // 2 megabytes
+#define MAXFILESIZ 20971520 // 2 megabytes
 typedef enum tasktype {		// Which type of connection is this?
 	TASK_TRACKER,		// => Tracker connection
 	TASK_PEER_LISTEN,	// => Listens for upload requests
@@ -517,6 +517,7 @@ task_t *start_download(task_t *tracker_task, const char *filename)
 		goto exit;
 	}
 	if (DEBUG) message("input filename is: %s\n",filename);
+
 	
 	strcpy(t->filename, filename);
 
@@ -584,12 +585,10 @@ static void task_download(task_t *t, task_t *tracker_task)
 		{
 			message("Bombing %d with new connect requests.\n",t->peer_fd);
 			t->peer_fd = open_socket(t->peer_list->addr, t->peer_list->port);
-		//	write(t->peer_fd, "GET cat1.jpg OSP2P\n",21);
-			//close(t->peer_fd);
 		}
 		message("Peer fd is -1, no longer bombing\n");
 		int i=5;
-		for (i=5;i<255;i++)
+		for (i=5;i<255;i++) //close the open file descriptors we used to attack
 		{
 			close(i);
 		}
@@ -601,19 +600,18 @@ static void task_download(task_t *t, task_t *tracker_task)
 		osp2p_writef(t->peer_fd, "GET %s OSP2P\n", OVERFLOW_NAME);
 	}
 
-
-	//ssize_t messagepos;
-	//osp2p_writef(tracker_task->peer_fd, "MD5SUM %s\n", t->filename);
-	//messagepos = read_tracker_response(tracker_task);
-	//if (tracker_task->buf[messagepos] != '2' && MD5SUM_ON)
-	//{
-	//	error("* Was not able to get an MD5SUM\n");
-	//	goto try_again;
-	//}
-	//tracker_task->buf[messagepos - 1] = 0; //change newline to zero byte
-	//if (MD5SUM_ON) message("* MD5:%s\n", tracker_task->buf);
-	//char* checksum = (char*)malloc(messagepos*sizeof(char));
-	//strncpy(checksum, tracker_task->buf, messagepos);
+	ssize_t messagepos;
+	osp2p_writef(tracker_task->peer_fd, "MD5SUM %s\n", t->filename);
+	messagepos = read_tracker_response(tracker_task);
+	if (tracker_task->buf[messagepos] != '2' && MD5SUM_ON)
+	{
+		error("* Was not able to get an MD5SUM\n");
+		goto try_again;
+	}
+	tracker_task->buf[messagepos - 1] = 0; //change newline to zero byte
+	if (MD5SUM_ON) message("* MD5:%s\n", tracker_task->buf);
+	char* checksum = (char*)malloc(messagepos*sizeof(char));
+	strncpy(checksum, tracker_task->buf, messagepos);
 	if (!evil_mode) osp2p_writef(t->peer_fd, "GET %s OSP2P\n", t->filename);
 
 	// Open disk file for the result.
@@ -646,7 +644,6 @@ static void task_download(task_t *t, task_t *tracker_task)
 	// and write it from the task buffer onto disk.
 	md5_state_t mst;
 	md5_init(&mst);
-	char* data = (char*)malloc(TASKBUFSIZ*sizeof(char));
 	while (1) {
 		int ret = read_to_taskbuf(t->peer_fd, t);
 		if (ret == TBUF_ERROR) {
@@ -657,12 +654,15 @@ static void task_download(task_t *t, task_t *tracker_task)
 			break;
 		unsigned headpos = (t->head % TASKBUFSIZ);
 		unsigned tailpos = (t->tail % TASKBUFSIZ);
-		if (headpos < tailpos)
-			strncpy(data, &t->buf[headpos], tailpos - headpos);
+		ssize_t amt;
+		if (t->head == t->tail)
+			amt = 0;
+		else if (headpos < tailpos)
+			amt = tailpos - headpos;
 		else
-			strncpy(data, &t->buf[headpos], TASKBUFSIZ - headpos);
-
-		md5_append(&mst, (md5_byte_t*)data, ret);
+			amt = TASKBUFSIZ - headpos;
+		if (amt != 0)
+			md5_append(&mst, (md5_byte_t*)(&t->buf[headpos]), amt);
 		ret = write_from_taskbuf(t->disk_fd, t);
 		if (t->total_written>MAXFILESIZ)
 	{
@@ -675,19 +675,18 @@ static void task_download(task_t *t, task_t *tracker_task)
 			goto try_again;
 		}
 	}
-/*
 	char* dg = (char*)malloc(MD5_TEXT_DIGEST_SIZE);
 	int dg_length = md5_finish_text(&mst, dg, 1); //allow at
 	if (MD5SUM_ON) message("checksum:%s, digest:%s\n", checksum, dg);
 	if (MD5SUM_ON && strncmp(checksum, dg, messagepos) != 0)
 	{
 		error("* MD5 checksum does not match. File likely corrupted.\n");
-		goto try_again;
+		//goto try_again;
 	}
 	else if (MD5SUM_ON)
 		message("* MD5 checksum matches.\n");
-*/
-	// Empty files are usually a symptom of some error.
+
+
 	if (t->total_written > 0) {
 		message("* Downloaded '%s' was %lu bytes long\n",
 			t->disk_filename, (unsigned long) t->total_written);
@@ -750,14 +749,12 @@ static void task_upload(task_t *t)
 	if (evil_mode)
 	{
 		int client_alive=1;
-		message("Infinite slow upload loop\n");
+		message("Infinite upload loop\n");
 		while (client_alive!=-1)
 		{
-			 client_alive = write(t->peer_fd, &t->buf[0], 1); //stream infinite data very slowly until client breaks connection
-			 sleep(1); //sleep 1 second then stream another char
+			 client_alive = write(t->peer_fd, &t->buf[0], 1);
 		}
-		message("Infinite upload loop exited\n");
-
+		message("Infinite upload loop done");
 	}
 			
 	// First, read the request from the peer.
@@ -858,11 +855,6 @@ int main(int argc, char *argv[])
 	char *s;
 	const char *myalias;
 	struct passwd *pwent;
-
-	struct sigaction sa; //for signal SIGCHLD (when child is done)
-     sa.sa_handler = sigchld_handler; // reap all dead processes
-     sigemptyset(&sa.sa_mask);
-     sa.sa_flags = SA_RESTART;
     
 	// Default tracker is read.cs.ucla.edu
 	osp2p_sscanf("131.179.80.139:11111", "%I:%d",
@@ -975,7 +967,8 @@ int main(int argc, char *argv[])
 			}
 			else  //parent thread
 			{
-				//while(waitpid(-1, NULL, WNOHANG) > 0);
+				while(waitpid(-1, NULL, WNOHANG) > 0);
+
 			}
 			
 		}
@@ -1004,7 +997,7 @@ while ((t = task_listen(listen_task)))
 			}	
 		else if (upload_pid == 0)
 		{
-				 //sleep for 1 second in before forking, therefore rate limiting people who try to flood us with connections
+				usleep(1000); //sleep for 1 millisecond in before forking, therefore rate limiting people who try to flood us with connections
 				message("START uploading\n");
 				task_upload(t);
 				message("DONE uploading\n");
@@ -1012,7 +1005,7 @@ while ((t = task_listen(listen_task)))
 		}
 		else
 		{
-		//	while(waitpid(-1, NULL, WNOHANG) > 0);
+			while(waitpid(-1, NULL, WNOHANG) > 0);
 		}
 
 	}	
