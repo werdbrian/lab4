@@ -9,10 +9,14 @@
 # in the appropriate section below (remove the sign first). If you have any other information you'd
 # like us to know, please add it at the end of the file.
 
-# Partner 1 Name: William Lai  Student ID: 404138817  Email: williamlai@ucla.edu
+# Partner 1 Name: William Lai  
+Student ID: 404138817  
+Email: williamlai@ucla.edu
 
-# Partner 2 (if you're working in a team)   Name: Brian Liu   Student ID: 404354948 Email:
-liubrian7@ucla.edu
+# Partner 2 (if you're working in a team)   
+Name: Brian Liu   
+Student ID: 404354948 
+Email:liubrian7@ucla.edu
 
 # EXERCISE 1: What method you used to make your peer download and upload files in parallel? (~1-3
 sentences)  We used the fork() function, as advised in section, to download and upload files in
@@ -101,6 +105,6 @@ peers download speed and gives him the impression he is downloading the actual f
 he is downloading a fake file at a very slow speed.
 
 
-Extra credit problems MD5SUM check Extra credit problem: none
+Extra credit problems MD5SUM check Extra credit problem: MD5SUM, 2 extra attacks
 
  Addanyotherinformationyou'dlikeustoknowbelowthisline.
